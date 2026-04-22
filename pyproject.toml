@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rpi-dragon"
+version = "0.0.1"
+dependencies = [
+    "pyaudio"
+]
+
+requires-python = ">= 3.10"
+
+authors = [
+  { name="Phillip David Stearns", email="phil@phillipstearns.com" },
+]
+description = "A class designed to sniff network packets and output them as console text and audio on a Raspberry Pi."
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+readme = {"file" = "README.md", "content-type" = "text/markdown"}
+
+license = "GPL-3.0"
+license-files = ["LICEN[CS]E*"]
+
+[tool.setuptools]
+packages = ["rpi-dragon"]

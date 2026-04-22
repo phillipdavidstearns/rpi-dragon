@@ -15,7 +15,7 @@ import dragon
 
 # setup
 dragon = Dragon(
-	interfaces = 'eth0,wlan0', # specify network devices by name, 
+	interfaces = 'eth0,wlan0', # specify network devices by name,
   chunk_size = 1024, # sets the number of bytes for print/audio output buffer
   print_enabled = False, # enables/disables printing of data to the console
   color_enabled = False, # enables/disables colorizing of characters
