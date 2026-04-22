@@ -1,2 +1,2 @@
 # __init__.py
-import dragon
+import rpi_dragon
