@@ -11,21 +11,20 @@
 ## Usage
 
 ```python
-import Dragon
+import dragon
 
 # setup
-INTERFACES=['eth0,wlan0']
-
 dragon = Dragon(
-	INTERFACES,
-	CHUNK=1024, #sets the number of bytes for print/audio output
-	PRINT=False, #enables/disables printing of data to the console
-	COLOR=False, #enables/disables colorizing of characters
-	CONTROL_CHARACTERS=True, #enables/disables printing of line break characters
-	DEVICE=0, #sets the audio output device
-	RATE=44100, #audio sampling rate
-	WIDTH=1, #size in bytes of the audio sample
-	LOGAPS=True #enables/disables loggin access points from probe requests
+	interfaces = 'eth0,wlan0', # specify network devices by name, 
+  chunk_size = 1024, # sets the number of bytes for print/audio output buffer
+  print_enabled = False, # enables/disables printing of data to the console
+  color_enabled = False, # enables/disables colorizing of characters
+  special_characters = True, # enables/disables printing of line break characters
+  device_index = 0, # sets the audio output device
+  sample_rate = 48000, # audio sampling rate
+  sample_width = 1, # width * 8 = bit depth
+  log_aps = True, # enables/disables loggin access points from probe requests
+  audio_only = False # completely disables console output
 )
 
 dragon.start()

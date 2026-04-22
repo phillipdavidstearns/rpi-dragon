@@ -15,54 +15,68 @@ import logging
 # https://serverfault.com/questions/189520/which-characters-if-catd-will-mess-up-my-terminal-and-make-a-ton-of-noise
 
 #===========================================================================
-# Listener
-# A socket based packet sniffer. Main loop will check sockets for data and grab what's there,
-# storing in a buffer to be extracted later. chunkSize should be a relatively small power of two.
-# Until I can figure out a way to tinker with the sockets and set appropriate permissions, this
-# is what requires running the script as root.
+
 
 class Dragon(Thread):
-  def __init__(self, INTERFACES, CHUNK=1024, PRINT=False, COLOR=False, CONTROL_CHARACTERS=True, DEVICE=0, RATE=44100, WIDTH=1, LOGAPS=True):
+  def __init__(
+      self,
+      interfaces = '',
+      chunk_size = 1024,
+      print_enabled = False,
+      color_enabled = False,
+      special_characters = True,
+      device_index = 0,
+      sample_rate = 48000,
+      sample_width = 1, # width * 8 = bit depth
+      log_aps = True,
+      audio_only = False
+    ):
     if os.getuid() != 0:
       raise Exception('This module requires root priviledges.')
     super().__init__()
     self.daemon = True
     self.interfaces = []
-    ifs = re.split(r'[:;,\.\-_\+|]', INTERFACES)
+    ifs = re.split(r'[:;,\.\-_\+| ]', interfaces)
     for i in range(len(ifs)) :
       self.interfaces.append(ifs[i])
-    self.qtyChannels = len(self.interfaces)
-    self.lock=Lock()
+    self.qty_channels = len(self.interfaces)
+    self.lock = Lock()
     self.sockets = None
     self.writer = None
     self.audifier = None
-    self.audioDevice=DEVICE
-    self.chunk = CHUNK
-    self.rate = RATE
-    self.width = WIDTH
-    self.printEnabled = PRINT
-    self.colorEnabled = COLOR
-    self.ctlEnabled = CONTROL_CHARACTERS
-    self.logAPs = LOGAPS
+    self.device_index = device_index
+    self.chunk = chunk_size
+    self.rate = sample_rate
+    self.width = sample_width
+    self.print_enabled = print_enabled
+    self.colorEnabled = color_enabled
+    self.ctlEnabled = special_characters
+    self.log_aps = log_aps
     self.doRun = False
     self.isStopped = True
     self.isReady = False
-    self.excludedChars=[1,2,3,4,5,6,7,8,9,11,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,155,255]
-    
-    logging.debug("DEVICE: %s" % self.audioDevice)
-    logging.debug("interfaces: %s" % self.interfaces)
-    logging.debug("qtyChannels: %s" % self.qtyChannels)
-    logging.debug("CHUNK SIZE: %s" %  self.chunk)
-    logging.debug("SAMPLE RATE: %s" % self.rate)
-    logging.debug("BYTES PER SAMPLE: %s" % self.width)
-    logging.debug("PRINT: %s" % self.printEnabled)
-    logging.debug("COLOR: %s" % self.colorEnabled)
-    logging.debug("CONTROL_CHARACTERS: %s" % self.ctlEnabled)
-    logging.debug("LOG APs: %s" % self.logAPs)
+    self.audio_only = audio_only
+    self.excludedChars = [1,2,3,4,5,6,7,8,9,11,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,155,255]
+    # ^ temporary fix to exclude characters that might mess up the console output.
+    # https://www.asciitable.com/
+    # https://serverfault.com/questions/189520/which-characters-if-catd-will-mess-up-my-terminal-and-make-a-ton-of-noise
+
+    logging.debug(f"DEVICE: {self.device_index}")
+    logging.debug(f"interfaces: {self.interfaces}")
+    logging.debug(f"qty_channels: {self.qty_channels}")
+    logging.debug(f"chunk_size : {self.chunk}")
+    logging.debug(f"SAMPLE RATE: {self.rate}")
+    logging.debug(f"BYTES PER SAMPLE: {self.width}")
+    logging.debug(f"PRINT: {self.print_enabled}")
+    logging.debug(f"COLOR: {self.colorEnabled}")
+    logging.debug(f"CONTROL_CHARACTERS: {self.ctlEnabled}")
+    logging.debug(f"LOG APs: {self.log_aps}")
+    logging.debug(f"audio_only: {self.audio_only}")
 
   def audify_data_callback(self, in_data, frame_count, time_info, status):
     audioChunk, printQueue = self.sockets.extractFrames(frame_count)
-    self.writer.queueForPrinting(printQueue)
+    if self.writer:
+      self.writer.queueForPrinting(printQueue)
     return(bytes(audioChunk), pyaudio.paContinue)
 
   def run(self):
@@ -74,26 +88,27 @@ class Dragon(Thread):
       logging.error('Error starting socket listeners: %s' % repr(e))
 
     try:
-      self.writer = Writer(
-        self.qtyChannels,
-        self.chunk*self.qtyChannels,
-        color=self.colorEnabled,
-        linebreaks=self.ctlEnabled,
-        enabled=self.printEnabled
-      )
-      self.writer.start()
+      if not self.audio_only:
+        self.writer = Writer(
+          qty_channels = self.qty_channels,
+          chunk = self.chunk*self.qty_channels,
+          color = self.colorEnabled,
+          linebreaks = self.ctlEnabled,
+          enabled = self.print_enabled
+        )
+        self.writer.start()
     except Exception as e:
       logging.error('Error starting console writers: %s' % repr(e))
 
     # spin up the audio playback engine
     try:
       self.audifier = Audifier(
-        self.qtyChannels,
-        self.width,
-        self.rate,
-        self.chunk,
-        self.audioDevice,
-        callback=self.audify_data_callback
+        qty_channels = self.qty_channels,
+        width = self.width,
+        rate = self.rate,
+        chunk = self.chunk,
+        device_index = self.device_index,
+        callback = self.audify_data_callback
       )
       self.audifier.start()
     except Exception as e:
@@ -112,15 +127,16 @@ class Dragon(Thread):
     while not self.isStopped:
       sleep(0.01)
 
-    try:
-      logging.info('Stopping Writer...')
-      if self.writer.color:
+    if not self.audio_only:
+      try:
+        logging.info('Stopping Writer...')
+        if self.writer.color:
+          self.writer.stop()
+          # print('\x1b[0m',end='')
+          sys.stdout.write('\x1b[0m')
         self.writer.stop()
-        # print('\x1b[0m',end='')
-        sys.stdout.write('\x1b[0m')
-      self.writer.stop()
-    except Exception as e:
-      logging.error("Error stopping Writer: %s" % repr(e))
+      except Exception as e:
+        logging.error("Error stopping Writer: %s" % repr(e))
 
     # Shutdown the PyAudio instance
     logging.info('Stopping audio stream...')
@@ -140,20 +156,28 @@ class Dragon(Thread):
     self.join()
 
   def get_writer_state(self):
-    return self.writer.getState()
+    if self.writer:
+      return self.writer.getState()
+
+# Listener
+# A socket based packet sniffer. Main loop will check sockets for data and grab what's there,
+# storing in a buffer to be extracted later. chunk should be a relatively small power of two.
+# Until I can figure out a way to tinker with the sockets and set appropriate permissions, this
+# is what requires running the script as root.
 
 class Listener(Thread):
-  def __init__(self, interfaces, chunkSize=4096, logAPs=True):
+  def __init__(self, interfaces, chunk=4096, log_aps=True):
     super().__init__()
     self.daemon = True
-    self.lock=Lock()
+    self.lock = Lock()
     self.interfaces = interfaces
-    self.chunkSize = chunkSize # used to fine tune how much is "grabbed" from the socket
+    self.chunk = chunk # used to fine tune how much is "grabbed" from the socket
     self.sockets = self.initSockets()
     self.buffers = self.initBuffers() # data will be into and out of the buffer(s)
     self.doRun = False # flag to run main loop & help w/ smooth shutdown of thread
     self.APs = {}
-    self.logAPs=logAPs
+    self.log_aps = log_aps
+    self.buffer_size_limit = 1048576
 
   def initSockets(self):
     sockets = []
@@ -184,14 +208,14 @@ class Listener(Thread):
       if pkt[25] >> 4 & 0b1111 == 0x4 and pkt[25] >> 2 & 0b11 ==0:
         if pkt[49] == 0 and pkt[50] > 0:
           try:
-            SSID=pkt[51:51+pkt[50]].decode('utf-8')
-            MAC=pkt[29:35].hex()
+            SSID = pkt[51:51+pkt[50]].decode('utf-8')
+            MAC = pkt[29:35].hex()
           except:
             pass
         if not SSID and pkt[54] == 0 and pkt[55] > 0:
           try:
-            SSID=pkt[56:56+pkt[55]].decode('utf-8')
-            MAC=pkt[29:35].hex()
+            SSID = pkt[56:56+pkt[55]].decode('utf-8')
+            MAC = pkt[29:35].hex()
           except:
             pass
         if SSID:
@@ -217,14 +241,13 @@ class Listener(Thread):
   def readSockets(self):
     for i in range(len(self.sockets)):
       try: # grab a chunk of data from the socket...
-        data = self.sockets[i].recv(65535)
-        if data:
-          if self.interfaces[i] == 'wlan1' and self.logAPs:
-            AP = self.analyzePacket(data) # extract APs
-            if AP:
+        if data := self.sockets[i].recv(65535):
+          if self.interfaces[i] == 'wlan1' and self.log_aps:
+            if AP := self.analyzePacket(data): # extract APs
               self.addToAPs(AP)
-          with self.lock:
-            self.buffers[i] += data # if there's any data there, add it to the buffer
+          if len(buffers[i]) < self.buffer_size_limit:
+            with self.lock:
+              self.buffers[i].extend(data) # if there's any data there, add it to the buffer
       except: # if there's definitely no data to be read. the socket will throw and exception
         pass
 
@@ -249,7 +272,7 @@ class Listener(Thread):
 
   def run(self):
     logging.info('[LISTENER] run()')
-    self.doRun=True
+    self.doRun = True
     while self.doRun:
       try:
         self.readSockets()
@@ -270,51 +293,54 @@ class Listener(Thread):
 #===========================================================================
 # Writer
 # Handles console print operations in an independent thread. To prevent backlog of print data,
-# The chunkSize should be set to the same value as for the audio device. Right now, this is done
+# The chunk should be set to the same value as for the audio device. Right now, this is done
 # in the initialization portion of the script when run as standalone.
 
 class Writer(Thread):
-  def __init__(self, qtyChannels, chunkSize=4096, color=False, linebreaks=True, enabled=False):
-    self.lock=Lock()
-    self.qtyChannels = qtyChannels # we need to know how many streams of data we'll be printing
+  def __init__(self, qty_channels, chunk=4096, color=False, linebreaks=True, enabled=False):
+    super().__init__()
+    self.lock = Lock()
+    self.qty_channels = qty_channels # we need to know how many streams of data we'll be printing
     self.doRun = False
-    self.color=color
-    self.linebreaks=linebreaks
+    self.color = color
+    self.linebreaks = linebreaks
     self.shift = 0
     self.enabled = enabled
     self.buffers = []
     self.initBuffers() # the so called printQueue
-    self.chunkSize = chunkSize
-    Thread.__init__(self)
+    self.chunk = chunk
 
   def initBuffers(self):
     self.buffers = []
-    for i in range(self.qtyChannels):
+    for i in range(self.qty_channels):
       self.buffers.append(bytearray())
     return self.buffers
 
   def queueForPrinting(self, queueData):
-    # print('adding to queue: %s' % repr(queueData))
-      # since this thread isn't actively grabbing data, it's added here...
+    if not self.enabled: return
+
     with self.lock:
-      if self.enabled:
-        if len(queueData) != len(self.buffers):
-          raise Exception("[!] len(queueData): %s != len(self.buffers): %s" % (len(queueData),len(self.buffers)))
-        for i in range(len(self.buffers)):
-          if queueData[i]:
-              self.buffers[i]+=queueData[i]
+      if len(queueData) != len(self.buffers):
+        raise Exception("[!] len(queueData): %s != len(self.buffers): %s" % (len(queueData),len(self.buffers)))
+      for i in range(len(self.buffers)):
+        if queueData[i]:
+          self.buffers[i].extend(queueData[i])
 
   def printBuffers(self):
+
     for n in range(len(self.buffers)):
       string = ''
       with self.lock:      
-        if self.chunkSize > len(self.buffers[n]):
+
+        if self.chunk > len(self.buffers[n]):
           size = len(self.buffers[n])
         else:
-          size = self.chunkSize
-        if size > 0 and self.enabled:
+          size = self.chunk
+
+        if self.enabled:
+
           for i in range(size):
-            char=chr(0)
+            char = chr(0)
             val = self.buffers[n][i]
             
             if self.linebreaks:
@@ -331,9 +357,11 @@ class Writer(Thread):
               string += char
           if self.color:
             string += '\x1b[0m'
+
           sys.stdout.write(string)
           sys.stdout.flush()
-        self.buffers[n] = self.buffers[n][size:] # remove chunk from queue. will enmpty over time if disabled
+
+        self.buffers[n] = self.buffers[n][size:] # remove chunk from queue. will empty over time if disabled
 
   def getState(self):
     with self.lock:
@@ -376,7 +404,7 @@ class Writer(Thread):
 
   def run(self):
     logging.info('[WRITER] run()')
-    self.doRun=True
+    self.doRun = True
     while self.doRun:
       try:
         self.printBuffers()
@@ -397,16 +425,15 @@ class Writer(Thread):
 # for playback runs in a separate thread. Initializing in a subclassed Thread may be redundant.
 
 class Audifier():
-  def __init__(self, qtyChannels, width=1, rate=44100, chunkSize=2048, deviceIndex=0, callback=None):
+  def __init__(self, qty_channels, width=1, rate=44100, chunk=2048, device_index=0, callback=None):
     if not callback:
       raise Exception('Audifier instance requires a callback function. Got: %s' % callback)
 
-    self.doRun=False
-    self.qtyChannels = qtyChannels
+    self.qty_channels = qty_channels
     self.width = width
     self.rate = rate
-    self.chunkSize = chunkSize
-    self.deviceIndex = deviceIndex
+    self.chunk = chunk
+    self.device_index = device_index
     self.callback = callback
     self.pa = pyaudio.PyAudio()
     self.stream = self.initPyAudioStream()
@@ -420,19 +447,19 @@ class Audifier():
     # print(
     #   self.pa.is_format_supported(
     #     rate = self.rate,
-    #     output_device=self.deviceIndex,
-    #     output_channels=self.qtyChannels,
+    #     output_device=self.device_index,
+    #     output_channels=self.qty_channels,
     #     output_format=self.pa.get_format_from_width(self.width)
     #   )
     # )
 
     stream = self.pa.open(
       format=self.pa.get_format_from_width(self.width),
-      channels=self.qtyChannels,
+      channels=self.qty_channels,
       rate=self.rate,
-      frames_per_buffer=self.chunkSize,
+      frames_per_buffer=self.chunk,
       input=False,
-      output_device_index=self.deviceIndex,
+      output_device_index=self.device_index,
       output=True,
       stream_callback=self.callback,
       start=False

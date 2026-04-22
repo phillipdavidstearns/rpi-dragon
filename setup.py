@@ -1,6 +1,6 @@
 import setuptools
 
-__project__ = "Dragon"
+__project__ = "rpi-dragon"
 __version__ = "0.0.1"
 __description__ = "A class designed to sniff network packets and output them as console text and audio on a Raspberry Pi."
 __packages__ = ["Dragon", "pyaudio", "logging", "os", "sys", "socket", "re", "threading", "time"]

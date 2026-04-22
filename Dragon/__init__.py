@@ -1,3 +1,3 @@
 # __init__.py
-from .Dragon import Dragon
+from .dragon import dragon
 
