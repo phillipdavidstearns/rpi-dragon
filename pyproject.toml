@@ -27,4 +27,4 @@ license = "GPL-3.0"
 license-files = ["LICEN[CS]E*"]
 
 [tool.setuptools]
-packages = ["rpi-dragon"]
+packages = ["dragon"]
