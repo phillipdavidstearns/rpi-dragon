@@ -7,7 +7,6 @@ import pyaudio
 import re
 from threading import Thread, Lock
 from time import sleep
-from decouple import config
 import logging
 
 # temporary fix to exclude characters that might mess up the console output.
