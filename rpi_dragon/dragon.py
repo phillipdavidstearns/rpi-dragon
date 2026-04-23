@@ -55,10 +55,6 @@ class Dragon(Thread):
     self.isStopped = True
     self.isReady = False
     self.audio_only = audio_only
-    self.excludedChars = [1,2,3,4,5,6,7,8,9,11,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,155,255]
-    # ^ temporary fix to exclude characters that might mess up the console output.
-    # https://www.asciitable.com/
-    # https://serverfault.com/questions/189520/which-characters-if-catd-will-mess-up-my-terminal-and-make-a-ton-of-noise
 
     logging.debug(f"DEVICE: {self.device_index}")
     logging.debug(f"interfaces: {self.interfaces}")
@@ -310,6 +306,10 @@ class Writer(Thread):
     self.buffers = []
     self.initBuffers() # the so called printQueue
     self.chunk = chunk
+    self.excludedChars = [1,2,3,4,5,6,7,8,9,11,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,155,255]
+    # ^ temporary fix to exclude characters that might mess up the console output.
+    # https://www.asciitable.com/
+    # https://serverfault.com/questions/189520/which-characters-if-catd-will-mess-up-my-terminal-and-make-a-ton-of-noise
 
   def initBuffers(self):
     self.buffers = []
