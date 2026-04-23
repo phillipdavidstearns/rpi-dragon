@@ -240,9 +240,7 @@ class Listener(Thread):
   def readSockets(self):
     for i in range(len(self.sockets)):
       try: # grab a chunk of data from the socket...
-        data = self.sockets[i].recv(65535)
-        logging.debug(data)
-        if data:
+        if data := self.sockets[i].recv(65535):
           if self.interfaces[i] in ['wlan1','wlan2'] and self.log_aps:
             if AP := self.analyzePacket(data): # extract APs
               self.addToAPs(AP)
@@ -250,7 +248,8 @@ class Listener(Thread):
           if len(buffers[i]) < self.buffer_size_limit:
             with self.lock:
               self.buffers[i].extend(data) # if there's any data there, add it to the buffer
-      except: # if there's definitely no data to be read. the socket will throw and exception
+      except Exception as e: # if there's definitely no data to be read. the socket will throw and exception
+        logging.error(f"{e}")
         pass
 
   def extractFrames(self, frames):
