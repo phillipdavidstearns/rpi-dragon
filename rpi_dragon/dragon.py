@@ -238,10 +238,11 @@ class Listener(Thread):
           self.APs[key]['count'] += 1
 
   def readSockets(self):
-    logging.debug('readSockets...')
     for i in range(len(self.sockets)):
       try: # grab a chunk of data from the socket...
-        if data := self.sockets[i].recv(65535):
+        data = self.sockets[i].recv(65535)
+        logging.debug(data)
+        if data:
           if self.interfaces[i] in ['wlan1','wlan2'] and self.log_aps:
             if AP := self.analyzePacket(data): # extract APs
               self.addToAPs(AP)
