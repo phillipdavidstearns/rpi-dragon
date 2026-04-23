@@ -238,6 +238,7 @@ class Listener(Thread):
           self.APs[key]['count'] += 1
 
   def readSockets(self):
+    logging.debug('readSockets...')
     for i in range(len(self.sockets)):
       try: # grab a chunk of data from the socket...
         if data := self.sockets[i].recv(65535):
