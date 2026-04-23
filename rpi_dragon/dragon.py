@@ -241,9 +241,10 @@ class Listener(Thread):
     for i in range(len(self.sockets)):
       try: # grab a chunk of data from the socket...
         if data := self.sockets[i].recv(65535):
-          if self.interfaces[i] == 'wlan1' and self.log_aps:
+          if self.interfaces[i] in ['wlan1','wlan2'] and self.log_aps:
             if AP := self.analyzePacket(data): # extract APs
               self.addToAPs(AP)
+          logging.debug(f"len(buffers[i]) {len(buffers[i])} < self.buffer_size_limit {self.buffer_size_limit}: {len(buffers[i]) < self.buffer_size_limit}")
           if len(buffers[i]) < self.buffer_size_limit:
             with self.lock:
               self.buffers[i].extend(data) # if there's any data there, add it to the buffer
@@ -453,15 +454,15 @@ class Audifier():
     # )
 
     stream = self.pa.open(
-      format=self.pa.get_format_from_width(self.width),
-      channels=self.qty_channels,
-      rate=self.rate,
-      frames_per_buffer=self.chunk,
-      input=False,
-      output_device_index=self.device_index,
-      output=True,
-      stream_callback=self.callback,
-      start=False
+      format = self.pa.get_format_from_width(self.width),
+      channels = self.qty_channels,
+      rate = self.rate,
+      frames_per_buffer = self.chunk,
+      input = False,
+      output_device_index = self.device_index,
+      output = True,
+      stream_callback = self.callback,
+      start = False
     )
     return stream
 
