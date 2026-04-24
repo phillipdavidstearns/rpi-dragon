@@ -15,11 +15,10 @@ import logging
 
 #===========================================================================
 
-
 class Dragon(Thread):
   def __init__(
       self,
-      interfaces = '',
+      interfaces = [],
       chunk_size = 1024,
       print_enabled = False,
       color_enabled = False,
@@ -34,10 +33,7 @@ class Dragon(Thread):
       raise Exception('This module requires root priviledges.')
     super().__init__()
     self.daemon = True
-    self.interfaces = []
-    ifs = re.split(r'[:;,\.\-_\+| ]', interfaces)
-    for i in range(len(ifs)) :
-      self.interfaces.append(ifs[i])
+    self.interfaces = interfaces
     self.qty_channels = len(self.interfaces)
     self.lock = Lock()
     self.sockets = None
@@ -76,12 +72,15 @@ class Dragon(Thread):
 
   def run(self):
     self.doRun = True
+
+    # Spin up the network socket listeners
     try:
-      self.sockets = Listener(self.interfaces)
+      self.sockets = SocketReader(self.interfaces)
       self.sockets.start()
     except Exception as e:
       logging.error('Error starting socket listeners: %s' % repr(e))
 
+    # Spin up the console outoput
     try:
       if not self.audio_only:
         self.writer = Writer(
@@ -95,7 +94,7 @@ class Dragon(Thread):
     except Exception as e:
       logging.error('Error starting console writers: %s' % repr(e))
 
-    # spin up the audio playback engine
+    # Spin up the audio playback engine
     try:
       self.audifier = Audifier(
         qty_channels = self.qty_channels,
@@ -114,6 +113,7 @@ class Dragon(Thread):
   
     while self.doRun:
         sleep(0.1)
+
     self.isStopped = True
 
   def stop(self):
@@ -127,7 +127,6 @@ class Dragon(Thread):
         logging.info('Stopping Writer...')
         if self.writer.color:
           self.writer.stop()
-          # print('\x1b[0m',end='')
           sys.stdout.write('\x1b[0m')
         self.writer.stop()
       except Exception as e:
@@ -155,41 +154,91 @@ class Dragon(Thread):
       return self.writer.getState()
 
 # Listener
+# Helps manage sockets
+
+class Listener():
+  def __init__(self, interface=None, chunk=4096, buffer_size_limit=1048576):
+    self.interface = interface
+    self.chunk = chunk # used to fine tune how much is "grabbed" from the socket
+    self.socket = None
+    self.buffer = bytearray() # data will be into and out of the buffer(s)
+    self.buffer_size_limit = buffer_size_limit
+    self.isOpen = False
+
+    self.initSocket()
+
+  def initSocket(self):
+    if self.interface:
+      if s := self.createSocket(self.interface):
+        self.socket = s
+        self.isOpen = True
+
+  def createSocket(self, interface):
+    # etablishes a RAW socket on the given interface, e.g. eth0. meant to only be read.
+    s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+    s.bind((interface, 0))
+    s.setblocking(False) # non-blocking
+    return s
+
+  def clearBuffer(self):
+    self.buffer = bytearray()
+
+  def read(self, qty_bytes=65535):
+    if not self.socket or self.isOpen == False: return None
+
+    try: # grab a chunk of data from the socket...   
+      if data := self.socket.recv(qty_bytes):
+        if len(self.buffer) < self.buffer_size_limit:
+          self.buffer.extend(data)
+          return data
+    except OSError: # if there's definitely no data to be read. the socket will throw and exception
+      pass
+    except Exception as e:
+        logging.warning(f"Listener.read(): {e}")
+
+  def extract_bytes(self, qty_bytes):
+    data = self.buffer[:qty_bytes]
+    self.buffer = self.buffer[qty_bytes:]
+    return data
+
+  def close(self):
+    self.socket.close()
+    self.socket = None
+
 # A socket based packet sniffer. Main loop will check sockets for data and grab what's there,
 # storing in a buffer to be extracted later. chunk should be a relatively small power of two.
 # Until I can figure out a way to tinker with the sockets and set appropriate permissions, this
 # is what requires running the script as root.
 
-class Listener(Thread):
-  def __init__(self, interfaces, chunk=4096, log_aps=True):
+class SocketReader(Thread):
+  def __init__(self, interfaces=[], chunk=4096, log_aps=True, buffer_size_limit=1048576):
     super().__init__()
     self.daemon = True
     self.lock = Lock()
     self.interfaces = interfaces
     self.chunk = chunk # used to fine tune how much is "grabbed" from the socket
-    self.sockets = self.initSockets()
-    self.buffers = self.initBuffers() # data will be into and out of the buffer(s)
+    self.listeners = []
     self.doRun = False # flag to run main loop & help w/ smooth shutdown of thread
     self.APs = {}
     self.log_aps = log_aps
-    self.buffer_size_limit = 1048576
 
-  def initSockets(self):
-    sockets = []
+    self.initListeners()
+
+  def replaceListener(self, index, interface):
+    if self.listeners[index]:
+      self.listeners[index] = Listener(interface=interface)
+
+  def addListener(self, interface):
+    if len(self.listeners) < 2:
+      self.listeners.append(Listener(interface=interface))
+
+  def removeListener(self, interface):
+    self.listeners = [listener for listener in self.listeners if listener.interface != interface]
+
+  def initListeners(self):
+    self.listeners = []
     for interface in self.interfaces:
-      # etablishes a RAW socket on the given interface, e.g. eth0. meant to only be read.
-      s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
-      s.bind((interface,0))
-      s.setblocking(False) # non-blocking
-      sockets.append(s)
-    return sockets
-
-  def initBuffers(self):
-    # nothing up my sleeves here...
-    buffers = []
-    for interface in self.interfaces :
-      buffers.append(bytearray())
-    return buffers
+      self.addListener(interface)
 
   def getAPs(self):
     with self.lock:
@@ -200,7 +249,7 @@ class Listener(Thread):
     SSID = None
     MAC = None
     try:
-      if pkt[25] >> 4 & 0b1111 == 0x4 and pkt[25] >> 2 & 0b11 ==0:
+      if pkt[25] >> 4 & 0b1111 == 0x4 and pkt[25] >> 2 & 0b11 == 0:
         if pkt[49] == 0 and pkt[50] > 0:
           try:
             SSID = pkt[51:51+pkt[50]].decode('utf-8')
@@ -234,55 +283,46 @@ class Listener(Thread):
           self.APs[key]['count'] += 1
 
   def readSockets(self):
-    for i in range(len(self.sockets)):
-      try: # grab a chunk of data from the socket...
-        if data := self.sockets[i].recv(65535):
-          if self.interfaces[i] in ['wlan1','wlan2'] and self.log_aps:
-            if AP := self.analyzePacket(data): # extract APs
+    for listener in self.listeners:
+      if data := listener.read():
+        if self.log_aps:
+           if AP := self.analyzePacket(data): # extract APs
               self.addToAPs(AP)
-          if len(self.buffers[i]) < self.buffer_size_limit:
-            with self.lock:
-              self.buffers[i].extend(data) # if there's any data there, add it to the buffer
-      except OSError: # if there's definitely no data to be read. the socket will throw and exception
-        pass
-      except Exception as e:
-        logging.warning(f"e")
 
   def extractFrames(self, frames):
     slices = [] # for making the chunk of audio data
     printQueue = [] # for assembling the data into chunks for printing  
-    with self.lock:
-      for n in range(len(self.buffers)):
-        bufferSlice = self.buffers[n][:frames] # grab a slice of data from the buffer
-        printQueue.append(bufferSlice) # whatever we got, add it to the print queue. no need to pad
-        # this makes sure we return as many frames as requested, by padding with audio "0"
-        padded = bufferSlice + bytes([127]) * (frames - len(bufferSlice))
-        slices.append(padded)
-        self.buffers[n] = self.buffers[n][frames:] # remove the extracted data from the buffer
-      if len(self.buffers) == 2 : # interleave the slices to form a stereo chunk
-        audioChunk = [ x for y in zip(slices[0], slices[1]) for x in y ]
-      elif len(self.buffers) == 1: # marvelous mono
-        audioChunk = slices[0]
-      else:
-        raise Exception("[!] Only supports 1 or two channels/interfaces.")
+    for listener in self.listeners:
+      with self.lock:
+        bufferSlice = listener.extract_bytes(frames) # grab a slice of data from the buffer
+      printQueue.append(bufferSlice) # whatever we got, add it to the print queue. no need to pad
+      # this makes sure we return as many frames as requested, by padding with audio "0"
+      padded = bufferSlice + bytes([127]) * (frames - len(bufferSlice))
+      slices.append(padded)
+    if len(self.listeners) == 2 : # interleave the slices to form a stereo chunk
+      audioChunk = [ x for y in zip(slices[0], slices[1]) for x in y ]
+    elif len(self.listeners) == 1: # marvelous mono
+      audioChunk = slices[0]
+    else:
+      raise Exception("[!] Only supports 1 or two channels/interfaces.")
     return audioChunk, printQueue
 
   def run(self):
-    logging.info('[LISTENER] run()')
+    logging.info('[SOCKET READER] run()')
     self.doRun = True
     while self.doRun:
       try:
         self.readSockets()
         sleep(0.0001)
       except Exception as e:
-        logging.error('[LISTENER] Error executing readSockets(): %s' % repr(e))
+        logging.error('[SOCKET READER] Error executing readSockets(): %s' % repr(e))
 
   def stop(self):
-    logging.info('[LISTENER] stop()')
+    logging.info('[SOCKET READER] stop()')
     self.doRun=False
     try:
-      for socket in self.sockets:
-        socket.close()
+      for listener in self.listeners:
+        listener.close()
     except Exception as e:
       logging.error('While closing socket: %e' % repr(e))
     self.join()
@@ -331,7 +371,7 @@ class Writer(Thread):
 
     for n in range(len(self.buffers)):
       string = ''
-      with self.lock:      
+      with self.lock:
 
         if self.chunk > len(self.buffers[n]):
           size = len(self.buffers[n])
@@ -343,12 +383,12 @@ class Writer(Thread):
           for i in range(size):
             char = chr(0)
             val = self.buffers[n][i]
-            
+
             if self.linebreaks:
               TEST = True
             else:
               TEST = val > 31
-            
+
             if TEST and not val in self.excludedChars:
               char = chr(val)
             if self.color: # add the ANSI escape sequence to encode the background color to value of val

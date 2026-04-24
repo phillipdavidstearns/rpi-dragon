@@ -4,14 +4,14 @@
 
 ## Installation
 
-1. `$ sudo apt-get update && sudo apt-get install git python3-pip python3-pyaudio python3-decouple`
+1. `$ sudo apt-get update && sudo apt-get install git portaudio19-dev python3-dev`
 1. `$ git clone https://github.com/phillipdavidstearns/rpi-dragon.git`
 1. `$ sudo python3 -m pip install -e ./rpi-dragon`
 
 ## Usage
 
 ```python
-import dragon
+from rpi_dragon import Dragon
 
 # setup
 dragon = Dragon(
@@ -37,4 +37,10 @@ while not dragon.isReady:
 print('dragon.get_writer_state(): %s' % repr(dragon.get_writer_state))
 
 dragon.stop()
+
+def callback(in_data, frame_count, time_info, status):
+	data = []
+	for i in range(frame_count):
+		data.append(random.randint(0,255))
+	return(bytes(data), pyaudio.paContinue)
 ```
