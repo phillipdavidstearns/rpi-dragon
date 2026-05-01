@@ -15,12 +15,12 @@ from rpi_dragon import Dragon
 
 # setup
 dragon = Dragon(
-	interfaces = 'eth0,wlan0', # specify network devices by name,
+	interfaces = ['eth0','wlan0'], # specify network devices by name,
   chunk_size = 1024, # sets the number of bytes for print/audio output buffer
   print_enabled = False, # enables/disables printing of data to the console
   color_enabled = False, # enables/disables colorizing of characters
-  special_characters = True, # enables/disables printing of line break characters
-  device_index = 0, # sets the audio output device
+  linebreak_enabled = True, # enables/disables printing of line break characters
+  audio_device_index = 0, # sets the audio output device
   sample_rate = 48000, # audio sampling rate
   sample_width = 1, # width * 8 = bit depth
   log_aps = True, # enables/disables loggin access points from probe requests
