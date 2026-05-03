@@ -66,6 +66,8 @@ class Dragon(Thread):
     logging.debug(f"LOG APs: {self.log_aps}")
     logging.debug(f"audio_only: {self.audio_only}")
 
+  #----------------------------------------------------------------
+
   def audify_data_callback(self, in_data, frame_count, time_info, status):
     if len(self.sockets.listeners) == 0:
       audioChunk = bytearray([127] * frame_count * self.qty_channels)
@@ -75,6 +77,8 @@ class Dragon(Thread):
     if self.writer:
       self.writer.queueForPrinting(printQueue)
     return(bytes(audioChunk), pyaudio.paContinue)
+
+  #----------------------------------------------------------------
 
   def run(self):
     self.doRun = True
@@ -126,6 +130,8 @@ class Dragon(Thread):
 
     self.isStopped = True
 
+  #----------------------------------------------------------------
+
   def stop(self):
     self.doRun = False
 
@@ -159,6 +165,8 @@ class Dragon(Thread):
     logging.info('The Dragon Sleeps!')
     self.join()
 
+  #----------------------------------------------------------------
+
   def get_state(self):
 
     return {
@@ -178,10 +186,16 @@ class Dragon(Thread):
   def get_sockets_state(self):
     return self.sockets.get_state() if self.sockets else None
 
+  def get_socket_state(self, index):
+    return self.sockets.get_socket_state(index) if self.sockets else None
+
   def get_access_points(self):
     return self.sockets.get_access_points()
 
+  def set_socket_interface(self, index, interface):
+    return self.sockets.set_listener(index, interface)
 
+#===========================================================================
 # Listener
 # Helps manage sockets
 
@@ -221,17 +235,20 @@ class Listener():
 
     try: # grab a chunk of data from the socket...
       if data := self.socket.recv(qty_bytes):
+        # logging.debug(f"Socket iface: {self.interface}, bytes captured {len(data)}")
         if len(self.buffer) < self.buffer_size_limit:
           self.buffer.extend(data)
           return data
-    except OSError: # if there's definitely no data to be read. the socket will throw and exception
+    except OSError: # if there's no data to be read. the socket will throw and exception
       pass
     except Exception as e:
         logging.warning(f"Listener.read(): {e}")
 
   def extract_bytes(self, qty_bytes):
+    # logging.debug(f"Socket iface: {self.interface}, buffer size before: {len(self.buffer)}")
     data = self.buffer[:qty_bytes]
     self.buffer = self.buffer[qty_bytes:]
+    # logging.debug(f"Socket iface: {self.interface}, bytes extracted {len(data)} buffer size after: {len(self.buffer)}")
     return data
 
   def close(self):
@@ -239,11 +256,14 @@ class Listener():
       self.socket.close()
       self.socket = None
 
+  def is_open(self):
+    return self.socket != None
+
   def get_state(self):
     return {
       'interface' : self.interface,
-      'is_open' : self.socket != None,
-      'buffer_length' : len(self.buffer)
+      'is_open' : self.is_open(),
+      'buffer_size' : len(self.buffer)
     }
 
 # A socket based packet sniffer. Main loop will check sockets for data and grab what's there,
@@ -258,40 +278,41 @@ class SocketReader(Thread):
     self.lock = Lock()
     self.interfaces = interfaces
     self.chunk = chunk # used to fine tune how much is "grabbed" from the socket
-    self.listeners = [None]*max_listeners
+    self.listeners = [None] * max_listeners
     self.doRun = False # flag to run main loop & help w/ smooth shutdown of thread
     self.APs = {}
     self.log_aps = log_aps
     self.buffer_size_limit = buffer_size_limit
     self.max_listeners = max_listeners
 
-    self.initListeners(interfaces)
+    self.init_listeners(interfaces)
 
-  def initListeners(self, interfaces):
-    self.listeners = [None]*self.max_listeners
+  def init_listeners(self, interfaces):
+    self.listeners = [None] * self.max_listeners
     for i in range(self.max_listeners):
       if i < len(interfaces):
-        self.setListener(i, interfaces[i])
+        self.set_listener(i, interfaces[i])
       else:
-        self.setListener(i, None)
+        self.set_listener(i, None)
 
-  def setListener(self, index, interface):
+  def set_listener(self, index, interface):
     if index < len(self.listeners):
+      if self.listeners[index]: self.listeners[index].close
       self.listeners[index] = Listener(
         interface = interface,
         buffer_size_limit = self.buffer_size_limit
       )
 
-  def addListener(self, interface):
+  def add_listener(self, interface):
     if len(self.listeners) < self.max_listeners:
       self.listeners.append(
         Listener(interface = interface)
       )
 
-  def removeListener(self, interface):
+  def remove_listener(self, interface):
     self.listeners = [listener for listener in self.listeners if listener.interface != interface]
 
-  def getAPs(self):
+  def get_access_points(self):
     return self.APs.copy()
 
   def get_state(self):
@@ -302,43 +323,54 @@ class SocketReader(Thread):
       'sockets' : [listener.get_state() for listener in self.listeners]
     }
 
+  def get_socket_state(self, index):
+    return self.listeners[index].get_state() if index < len(self.listeners) else None
+
   def analyzePacket(self, pkt):
     AP = {}
     SSID = None
     MAC = None
+    type = None
     try:
       if pkt[25] >> 4 & 0b1111 == 0x4 and pkt[25] >> 2 & 0b11 == 0:
         if pkt[49] == 0 and pkt[50] > 0:
           try:
             SSID = pkt[51:51+pkt[50]].decode('utf-8')
             MAC = pkt[29:35].hex()
+            type = 0
           except:
             pass
         if not SSID and pkt[54] == 0 and pkt[55] > 0:
           try:
             SSID = pkt[56:56+pkt[55]].decode('utf-8')
             MAC = pkt[29:35].hex()
+            type = 1
           except:
             pass
         if SSID:
-          return { SSID : { "MAC" : MAC } }  
-      else:
-        return None
+          
+          return {
+            'ssid' : SSID,
+            'mac' : MAC,
+            'type' : type
+          }  
     except:
       return None
       pass
 
   def addToAPs(self, AP):
+    ssid = AP['ssid']
     with self.lock:
-      for key in AP.keys():
-        if not key in self.APs:
-          self.APs[key] = {}
-          self.APs[key]['MACs'] = [AP[key]['MAC']]
-          self.APs[key]['count'] = 1
-        else:
-          if not AP[key]['MAC'] in self.APs[key]['MACs']:
-            self.APs[key]['MACs'].append(AP[key]['MAC'])
-          self.APs[key]['count'] += 1
+      if not AP['ssid'] in self.APs.keys():
+        self.APs.update({ssid: {
+          'mac_addresses' : [AP['mac']],
+          'count' : 1,
+          'type' : AP['type']
+        }})
+      else:
+        if not AP['mac'] in self.APs[ssid]['mac_addresses']:
+          self.APs[ssid]['mac_addresses'].append(AP['mac'])
+        self.APs[ssid]['count'] += 1
 
   def readSockets(self):
     for listener in self.listeners:
@@ -378,6 +410,7 @@ class SocketReader(Thread):
         sleep(0.0001)
       except Exception as e:
         logging.error('[SOCKET READER] Error executing readSockets(): %s' % repr(e))
+
 
   def stop(self):
     logging.info('[SOCKET READER] stop()')
