@@ -121,14 +121,15 @@ class Dragon(Thread):
     except Exception as e:
       logging.error('Error starting audifiers: %s' % repr(e))
 
-    self.isStopped = False
-    self.isReady = True
-  
-    while self.doRun:
-      sleep(5.0)
-      logging.debug(self.get_state())
-
-    self.isStopped = True
+    try:
+      self.isStopped = False
+      self.isReady = True
+      while self.doRun:
+        sleep(1.0)
+      self.isStopped = True
+    except Exception as e:
+      logging.error('Dragon main loop: %s' % repr(e))
+      self.isStopped = True
 
   #----------------------------------------------------------------
 
@@ -141,10 +142,9 @@ class Dragon(Thread):
     if not self.audio_only:
       try:
         logging.info('Stopping Writer...')
-        if self.writer.color:
-          self.writer.stop()
-          sys.stdout.write('\x1b[0m')
         self.writer.stop()
+        if self.writer.color:
+          sys.stdout.write('\x1b[0m')
       except Exception as e:
         logging.error("Error stopping Writer: %s" % repr(e))
 
@@ -252,7 +252,7 @@ class Listener():
     return data
 
   def close(self):
-    if socket:
+    if self.socket:
       self.socket.close()
       self.socket = None
 
@@ -411,7 +411,6 @@ class SocketReader(Thread):
       except Exception as e:
         logging.error('[SOCKET READER] Error executing readSockets(): %s' % repr(e))
 
-
   def stop(self):
     logging.info('[SOCKET READER] stop()')
     self.doRun=False
@@ -419,7 +418,7 @@ class SocketReader(Thread):
       for listener in self.listeners:
         if listener: listener.close()
     except Exception as e:
-      logging.error('While closing socket: %e' % repr(e))
+      logging.error(f"While closing socket: {repr(e)} ")
     self.join()
 
 #===========================================================================
